@@ -8,29 +8,46 @@ import {
   Check,
   ChevronRight,
   PartyPopper,
+  RefreshCw,
 } from 'lucide-react';
 import { useBoxStore } from '@/store/useBoxStore';
 import GlassCard from '@/components/ui/GlassCard';
 import Button from '@/components/ui/Button';
 import Badge from '@/components/ui/Badge';
 import Avatar from '@/components/ui/Avatar';
-import { mockBoxPieces, mockBoxResult } from '@/data/mockDataIndex';
 import { formatPrice } from '@/utils/format';
 import { cn } from '@/lib/utils';
 
 export default function ResultPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { getBoxById } = useBoxStore();
+  const { getBoxById, getBoxResult, generateBoxResult } = useBoxStore();
   const [revealIndex, setRevealIndex] = useState(-1);
   const [allRevealed, setAllRevealed] = useState(false);
-  const [showResult, setShowResult] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
 
   const box = getBoxById(id || '');
-  const result = mockBoxResult;
-  const pieces = mockBoxPieces;
+  const boxResult = getBoxResult(id || '');
 
   useEffect(() => {
+    if (box && !boxResult && !isGenerating) {
+      setIsGenerating(true);
+      setTimeout(() => {
+        generateBoxResult(box.id);
+        setIsGenerating(false);
+      }, 500);
+    }
+  }, [box, boxResult, generateBoxResult, isGenerating]);
+
+  const pieces = boxResult?.pieces || [];
+  const result = boxResult;
+
+  useEffect(() => {
+    if (pieces.length === 0) return;
+    
+    setRevealIndex(-1);
+    setAllRevealed(false);
+    
     const timer = setInterval(() => {
       setRevealIndex((prev) => {
         if (prev < pieces.length - 1) {
@@ -44,7 +61,7 @@ export default function ResultPage() {
     }, 600);
 
     return () => clearInterval(timer);
-  }, [pieces.length]);
+  }, [pieces.length, boxResult?.boxGroupId]);
 
   if (!box) {
     return (
@@ -54,8 +71,20 @@ export default function ResultPage() {
     );
   }
 
+  if (isGenerating || !boxResult) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-bg-secondary to-bg-primary flex items-center justify-center">
+        <div className="text-center">
+          <RefreshCw className="w-12 h-12 text-accent-pink animate-spin mx-auto mb-4" />
+          <p className="text-text-primary font-medium">正在生成拆盒结果...</p>
+          <p className="text-text-muted text-sm mt-1">请稍候</p>
+        </div>
+      </div>
+    );
+  }
+
   const getPieceOwner = (pieceId: string) => {
-    const dist = result.distribution.find(d => d.pieceId === pieceId);
+    const dist = result?.distribution.find(d => d.pieceId === pieceId);
     const member = box.members.find(m => m.userId === dist?.userId);
     return member || null;
   };
@@ -101,7 +130,7 @@ export default function ResultPage() {
             {allRevealed ? '恭喜大家！' : '拆盒进行中...'}
           </h2>
           <p className="text-text-muted">
-            已揭晓 {revealIndex + 1} / {pieces.length} 个
+            已揭晓 {Math.max(0, revealIndex + 1)} / {pieces.length} 个
           </p>
         </div>
 
@@ -218,7 +247,7 @@ export default function ResultPage() {
               </h3>
               <div className="space-y-3">
                 {box.members.map((member) => {
-                  const memberPieces = result.distribution.filter(d => d.userId === member.userId);
+                  const memberPieces = result?.distribution.filter(d => d.userId === member.userId) || [];
                   const hasHidden = memberPieces.some(d => {
                     const piece = pieces.find(p => p.id === d.pieceId);
                     return piece?.isHidden;
@@ -257,7 +286,7 @@ export default function ResultPage() {
                         </p>
                       </div>
                       <div className="text-right">
-                        <p className="text-accent-gold font-bold">{formatPrice(result.perPersonCost)}</p>
+                        <p className="text-accent-gold font-bold">{formatPrice(result?.perPersonCost || 0)}</p>
                         <p className="text-xs text-text-muted">人均费用</p>
                       </div>
                     </div>
@@ -274,7 +303,7 @@ export default function ResultPage() {
               <div className="space-y-3">
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-text-muted">商品金额</span>
-                  <span className="text-text-primary">{formatPrice(result.totalCost)}</span>
+                  <span className="text-text-primary">{formatPrice(result?.totalCost || 0)}</span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-text-muted">参与人数</span>
@@ -284,7 +313,7 @@ export default function ResultPage() {
                   <div className="flex items-center justify-between">
                     <span className="text-text-primary font-medium">人均费用</span>
                     <span className="font-display text-2xl font-bold gradient-gold-text">
-                      {formatPrice(result.perPersonCost)}
+                      {formatPrice(result?.perPersonCost || 0)}
                     </span>
                   </div>
                 </div>

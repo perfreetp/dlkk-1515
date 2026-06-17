@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -12,6 +12,7 @@ import {
   Gift,
   Clock,
   MapPin,
+  RefreshCw,
 } from 'lucide-react';
 import { useBoxStore } from '@/store/useBoxStore';
 import { useUserStore } from '@/store/useUserStore';
@@ -19,22 +20,31 @@ import GlassCard from '@/components/ui/GlassCard';
 import Button from '@/components/ui/Button';
 import Badge from '@/components/ui/Badge';
 import Avatar from '@/components/ui/Avatar';
-import { mockBoxResult, mockBoxPieces } from '@/data/mockDataIndex';
 import { formatPrice, formatDate } from '@/utils/format';
 import { cn } from '@/lib/utils';
 
 export default function PaymentPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { getBoxById } = useBoxStore();
+  const { getBoxById, getBoxResult, generateBoxResult } = useBoxStore();
   const { currentUser } = useUserStore();
   const [payMethod, setPayMethod] = useState('wechat');
   const [paying, setPaying] = useState(false);
   const [paid, setPaid] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
 
   const box = getBoxById(id || '');
-  const result = mockBoxResult;
-  const pieces = mockBoxPieces;
+  const boxResult = getBoxResult(id || '');
+
+  useEffect(() => {
+    if (box && !boxResult && !isGenerating) {
+      setIsGenerating(true);
+      setTimeout(() => {
+        generateBoxResult(box.id);
+        setIsGenerating(false);
+      }, 500);
+    }
+  }, [box, boxResult, generateBoxResult, isGenerating]);
 
   if (!box) {
     return (
@@ -44,6 +54,19 @@ export default function PaymentPage() {
     );
   }
 
+  if (isGenerating || !boxResult) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-bg-secondary to-bg-primary flex items-center justify-center">
+        <div className="text-center">
+          <RefreshCw className="w-12 h-12 text-accent-pink animate-spin mx-auto mb-4" />
+          <p className="text-text-primary font-medium">正在加载费用明细...</p>
+        </div>
+      </div>
+    );
+  }
+
+  const result = boxResult;
+  const pieces = boxResult.pieces;
   const myPieces = result.distribution.filter(d => d.userId === currentUser.id);
   const myPieceDetails = myPieces.map(d => pieces.find(p => p.id === d.pieceId)).filter(Boolean);
   const hasHidden = myPieceDetails.some(p => p?.isHidden);
@@ -324,7 +347,7 @@ export default function PaymentPage() {
         </div>
       )}
 
-      {!paid && (
+      {!paid && !isGenerating && boxResult && (
         <div className="fixed bottom-0 left-0 right-0 z-40 bg-bg-secondary/95 backdrop-blur-xl border-t border-border-light p-4">
           <div className="container mx-auto flex items-center justify-between gap-4">
             <div>

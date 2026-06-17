@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -12,6 +12,7 @@ import {
   Package,
   Truck,
   Store,
+  AlertCircle,
 } from 'lucide-react';
 import { useBoxStore } from '@/store/useBoxStore';
 import { useUserStore } from '@/store/useUserStore';
@@ -42,6 +43,7 @@ export default function CreateBoxPage() {
   const [pickupMethod, setPickupMethod] = useState<PickupMethod>('self_pickup');
   const [description, setDescription] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('全部');
+  const [timeError, setTimeError] = useState('');
 
   const currentCity = mockCities.find(c => c.name === cityName);
   const filteredSeries = categoryFilter === '全部'
@@ -52,6 +54,25 @@ export default function CreateBoxPage() {
     s => s.city === cityName && s.district === selectedDistrict
   );
 
+  const minDate = useMemo(() => {
+    return new Date().toISOString().split('T')[0];
+  }, []);
+
+  const minTime = useMemo(() => {
+    const now = new Date();
+    const selectedDateStr = meetDate;
+    const todayStr = minDate;
+    
+    if (selectedDateStr && selectedDateStr > todayStr) {
+      return '00:00';
+    }
+    
+    now.setMinutes(now.getMinutes() + 15);
+    const hours = String(now.getHours()).padStart(2, '0');
+    const minutes = String(now.getMinutes()).padStart(2, '0');
+    return `${hours}:${minutes}`;
+  }, [meetDate, minDate]);
+
   const steps = [
     { id: 1, title: '选择系列' },
     { id: 2, title: '选择门店' },
@@ -59,15 +80,70 @@ export default function CreateBoxPage() {
   ];
 
   const handleNext = () => {
-    if (step < 3) setStep(step + 1);
+    if (step < 3) {
+      if (step === 2) {
+        const error = validateTime();
+        if (error) {
+          setTimeError(error);
+          return;
+        }
+      }
+      setStep(step + 1);
+    }
   };
 
   const handlePrev = () => {
     if (step > 1) setStep(step - 1);
   };
 
+  const validateTime = (): string => {
+    if (!meetDate || !meetTime) return '';
+    
+    const meetDateTime = new Date(`${meetDate}T${meetTime}`);
+    const now = new Date();
+    const diffMinutes = (meetDateTime.getTime() - now.getTime()) / 60000;
+    
+    if (diffMinutes <= 0) {
+      return '到店时间不能早于当前时间';
+    }
+    if (diffMinutes < 15) {
+      return '到店时间需要至少提前15分钟';
+    }
+    
+    return '';
+  };
+
+  const handleDateChange = (value: string) => {
+    setMeetDate(value);
+    setTimeError('');
+  };
+
+  const handleTimeChange = (value: string) => {
+    setMeetTime(value);
+    setTimeError('');
+    
+    if (meetDate) {
+      const meetDateTime = new Date(`${meetDate}T${value}`);
+      const now = new Date();
+      const diffMinutes = (meetDateTime.getTime() - now.getTime()) / 60000;
+      
+      if (diffMinutes <= 0) {
+        setTimeError('到店时间不能早于当前时间');
+      } else if (diffMinutes < 15) {
+        setTimeError('到店时间需要至少提前15分钟');
+      }
+    }
+  };
+
   const handleCreate = () => {
     if (!selectedSeries || !selectedStore || !meetDate || !meetTime) return;
+
+    const error = validateTime();
+    if (error) {
+      setTimeError(error);
+      setStep(2);
+      return;
+    }
 
     const meetDateTime = new Date(`${meetDate}T${meetTime}`);
     
@@ -106,7 +182,7 @@ export default function CreateBoxPage() {
       case 1:
         return !!selectedSeries;
       case 2:
-        return !!cityName && !!selectedDistrict && !!selectedStore && !!meetDate && !!meetTime;
+        return !!cityName && !!selectedDistrict && !!selectedStore && !!meetDate && !!meetTime && !timeError;
       case 3:
         return true;
       default:
@@ -339,9 +415,12 @@ export default function CreateBoxPage() {
                   <input
                     type="date"
                     value={meetDate}
-                    onChange={(e) => setMeetDate(e.target.value)}
-                    min={new Date().toISOString().split('T')[0]}
-                    className="w-full py-3 px-4 bg-bg-glass border border-border-light rounded-xl text-text-primary focus:outline-none focus:border-accent-pink/50 transition-colors"
+                    onChange={(e) => handleDateChange(e.target.value)}
+                    min={minDate}
+                    className={cn(
+                      'w-full py-3 px-4 bg-bg-glass border rounded-xl text-text-primary focus:outline-none transition-colors',
+                      timeError ? 'border-red-500 focus:border-red-500/50' : 'border-border-light focus:border-accent-pink/50'
+                    )}
                   />
                 </div>
                 <div>
@@ -349,21 +428,24 @@ export default function CreateBoxPage() {
                   <input
                     type="time"
                     value={meetTime}
-                    onChange={(e) => setMeetTime(e.target.value)}
-                    className="w-full py-3 px-4 bg-bg-glass border border-border-light rounded-xl text-text-primary focus:outline-none focus:border-accent-pink/50 transition-colors"
+                    onChange={(e) => handleTimeChange(e.target.value)}
+                    min={meetDate === minDate ? minTime : '00:00'}
+                    className={cn(
+                      'w-full py-3 px-4 bg-bg-glass border rounded-xl text-text-primary focus:outline-none transition-colors',
+                      timeError ? 'border-red-500 focus:border-red-500/50' : 'border-border-light focus:border-accent-pink/50'
+                    )}
                   />
                 </div>
               </div>
-              <div className="mt-4 flex flex-wrap gap-2">
-                {['1小时后', '2小时后', '今天晚上', '明天下午'].map((time) => (
-                  <button
-                    key={time}
-                    className="px-3 py-1.5 text-xs bg-bg-glass border border-border-light rounded-full text-text-secondary hover:border-accent-pink hover:text-accent-pink transition-colors"
-                  >
-                    {time}
-                  </button>
-                ))}
-              </div>
+              {timeError && (
+                <div className="mt-3 flex items-center gap-2 text-red-400 text-sm">
+                  <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                  <span>{timeError}</span>
+                </div>
+              )}
+              <p className="mt-3 text-xs text-text-muted">
+                提示：请选择未来15分钟之后的时间，给系统留出匹配和通知时间
+              </p>
             </GlassCard>
           </div>
         )}

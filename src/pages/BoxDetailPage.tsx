@@ -37,15 +37,12 @@ import { cn } from '@/lib/utils';
 export default function BoxDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { getBoxById, joinBox, leaveBox } = useBoxStore();
+  const { joinBox, leaveBox, boxGroups } = useBoxStore();
   const { currentUser } = useUserStore();
-  const [box, setBox] = useState(getBoxById(id || ''));
   const [showJoinModal, setShowJoinModal] = useState(false);
   const [budget, setBudget] = useState(200);
 
-  useEffect(() => {
-    setBox(getBoxById(id || ''));
-  }, [id, getBoxById]);
+  const box = boxGroups.find(b => b.id === id);
 
   if (!box) {
     return (
@@ -71,15 +68,12 @@ export default function BoxDetailPage() {
 
   const handleJoin = () => {
     if (joinBox(box.id, budget)) {
-      setBox(getBoxById(box.id));
       setShowJoinModal(false);
     }
   };
 
   const handleLeave = () => {
-    if (leaveBox(box.id)) {
-      setBox(getBoxById(box.id));
-    }
+    leaveBox(box.id);
   };
 
   const handleStartBox = () => {

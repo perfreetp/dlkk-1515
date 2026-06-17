@@ -24,14 +24,14 @@ import { cn } from '@/lib/utils';
 export default function ChatPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { getBoxById, getMessagesByBoxId, addMessage, leaveBox } = useBoxStore();
+  const { addMessage, leaveBox, boxGroups, chatMessages } = useBoxStore();
   const { currentUser } = useUserStore();
   const [message, setMessage] = useState('');
   const [showMembers, setShowMembers] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  const box = getBoxById(id || '');
-  const messages = getMessagesByBoxId(id || '');
+  const box = boxGroups.find(b => b.id === id);
+  const messages = chatMessages.filter(m => m.boxGroupId === id);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
