@@ -1,0 +1,78 @@
+import type { User } from '@/types';
+
+export const mockUsers: User[] = [
+  {
+    id: 'user1',
+    nickname: '潮玩达人小K',
+    avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=kiki',
+    city: '上海',
+    totalBoxes: 28,
+    hiddenCount: 5,
+    level: 8,
+  },
+  {
+    id: 'user2',
+    nickname: '隐藏款收割机',
+    avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=harvest',
+    city: '上海',
+    totalBoxes: 56,
+    hiddenCount: 12,
+    level: 15,
+  },
+  {
+    id: 'user3',
+    nickname: '泡泡玛特铁粉',
+    avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=popmart',
+    city: '北京',
+    totalBoxes: 42,
+    hiddenCount: 8,
+    level: 12,
+  },
+  {
+    id: 'user4',
+    nickname: '拆盒新人',
+    avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=newbie',
+    city: '上海',
+    totalBoxes: 5,
+    hiddenCount: 0,
+    level: 2,
+  },
+  {
+    id: 'user5',
+    nickname: 'Molly收藏家',
+    avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=molly',
+    city: '深圳',
+    totalBoxes: 89,
+    hiddenCount: 18,
+    level: 20,
+  },
+  {
+    id: 'user6',
+    nickname: '手气欧皇',
+    avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=lucky',
+    city: '广州',
+    totalBoxes: 35,
+    hiddenCount: 10,
+    level: 10,
+  },
+  {
+    id: 'user7',
+    nickname: '深夜拆盒党',
+    avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=night',
+    city: '上海',
+    totalBoxes: 20,
+    hiddenCount: 3,
+    level: 6,
+  },
+  {
+    id: 'user8',
+    nickname: 'Dimoo爱好者',
+    avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=dimoo',
+    city: '北京',
+    totalBoxes: 67,
+    hiddenCount: 14,
+    level: 17,
+  },
+];
+
+export const currentUser: User = mockUsers[0];
