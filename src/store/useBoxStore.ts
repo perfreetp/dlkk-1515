@@ -8,11 +8,18 @@ interface BoxResultMap {
   [boxId: string]: BoxResult;
 }
 
+interface PendingMatch {
+  boxId: string;
+  targetCount: number;
+  createdAt: number;
+}
+
 interface BoxStore {
   boxGroups: BoxGroup[];
   chatMessages: ChatMessage[];
   historyBoxes: BoxGroup[];
   boxResults: BoxResultMap;
+  pendingMatches: PendingMatch[];
   
   joinBox: (boxId: string, budget?: number) => boolean;
   leaveBox: (boxId: string) => boolean;
@@ -24,6 +31,7 @@ interface BoxStore {
   generateBoxResult: (boxId: string) => BoxResult;
   autoMatchPlayers: (boxId: string, count: number) => void;
   updateBoxStatus: (boxId: string, status: BoxStatus) => void;
+  initPendingMatches: () => void;
 }
 
 const generateBoxPieces = (seriesName: string, totalPieces: number): BoxPiece[] => {
@@ -75,7 +83,7 @@ const createResultForBox = (box: BoxGroup): BoxResult => {
   });
   
   const totalCost = box.series.price * box.series.totalPieces;
-  const perPersonCost = Math.round(totalCost / box.filledSlots);
+  const perPersonCost = Math.round(totalCost / Math.max(1, box.filledSlots));
   
   return {
     boxGroupId: box.id,
@@ -87,6 +95,26 @@ const createResultForBox = (box: BoxGroup): BoxResult => {
   };
 };
 
+const reviveDates = <T,>(obj: T): T => {
+  if (!obj || typeof obj !== 'object') return obj;
+  
+  if (Array.isArray(obj)) {
+    return obj.map(item => reviveDates(item)) as unknown as T;
+  }
+  
+  const result: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(value)) {
+      result[key] = new Date(value);
+    } else if (value && typeof value === 'object') {
+      result[key] = reviveDates(value);
+    } else {
+      result[key] = value;
+    }
+  }
+  return result as T;
+};
+
 export const useBoxStore = create<BoxStore>()(
   persist(
     (set, get) => ({
@@ -94,6 +122,26 @@ export const useBoxStore = create<BoxStore>()(
       chatMessages: mockChatMessages,
       historyBoxes: mockHistoryBoxes,
       boxResults: {},
+      pendingMatches: [],
+
+      initPendingMatches: () => {
+        const state = get();
+        const now = Date.now();
+        
+        state.pendingMatches.forEach((pending) => {
+          const box = state.getBoxById(pending.boxId);
+          if (!box) return;
+          if (box.filledSlots >= box.totalSlots) return;
+          if (now - pending.createdAt > 30000) return;
+          
+          const remaining = pending.targetCount - (box.filledSlots - 1);
+          if (remaining > 0) {
+            setTimeout(() => {
+              get().autoMatchPlayers(pending.boxId, remaining);
+            }, 1500 + Math.random() * 1500);
+          }
+        });
+      },
 
       joinBox: (boxId, budget = 150) => {
         const state = get();
@@ -209,12 +257,15 @@ export const useBoxStore = create<BoxStore>()(
         const countdownMs = meetTime.getTime() - Date.now();
         const countdownMinutes = Math.max(1, Math.floor(countdownMs / 60000));
 
+        const cityName = boxData.city || '上海';
+        const districtName = boxData.district || '';
+
         const newBox: BoxGroup = {
           id: newId,
           seriesId: boxData.seriesId || '',
           series: boxData.series || state.boxGroups[0].series,
-          city: boxData.city || '上海',
-          district: boxData.district || '',
+          city: cityName,
+          district: districtName,
           storeName: boxData.storeName || '',
           storeAddress: boxData.storeAddress || '',
           meetTime,
@@ -241,13 +292,21 @@ export const useBoxStore = create<BoxStore>()(
           timestamp: new Date(),
         };
 
+        const matchCount = Math.floor(Math.random() * 2) + 1;
+        const newPending: PendingMatch = {
+          boxId: newId,
+          targetCount: matchCount,
+          createdAt: Date.now(),
+        };
+
         set({ 
           boxGroups: [newBox, ...state.boxGroups],
           chatMessages: [...state.chatMessages, welcomeMessage],
+          pendingMatches: [...state.pendingMatches, newPending],
         });
 
         setTimeout(() => {
-          get().autoMatchPlayers(newId, Math.floor(Math.random() * 2) + 1);
+          get().autoMatchPlayers(newId, matchCount);
         }, 2000);
 
         return newBox;
@@ -279,6 +338,11 @@ export const useBoxStore = create<BoxStore>()(
           };
         }
 
+        const existing = state.boxResults[boxId];
+        if (existing) {
+          return existing;
+        }
+
         const result = createResultForBox(box);
         
         set({
@@ -300,12 +364,16 @@ export const useBoxStore = create<BoxStore>()(
         if (!box || box.filledSlots >= box.totalSlots) return;
 
         const availableUsers = mockUsers.filter(
-          u => u.id !== currentUser.id && !box.members.some(m => m.userId === u.id)
+          u => u.id !== currentUser.id 
+            && !box.members.some(m => m.userId === u.id)
+            && u.city === box.city
         );
         
         const shuffledUsers = shuffleArray(availableUsers);
         const playersToAdd = Math.min(count, box.totalSlots - box.filledSlots, shuffledUsers.length);
         
+        if (playersToAdd <= 0) return;
+
         const newMembers: BoxMember[] = [];
         const newMessages: ChatMessage[] = [];
         
@@ -323,11 +391,11 @@ export const useBoxStore = create<BoxStore>()(
           newMembers.push(member);
           
           newMessages.push({
-            id: `msg-${Date.now()}-${i}`,
+            id: `msg-${Date.now()}-${i}-${boxId}`,
             boxGroupId: boxId,
             userId: 'system',
             user: user,
-            content: `${user.nickname} 加入了拼盒（系统匹配）`,
+            content: `${user.nickname} 加入了拼盒（${box.city}同城匹配）`,
             type: 'system',
             timestamp: new Date(Date.now() + i * 1000),
           });
@@ -347,9 +415,12 @@ export const useBoxStore = create<BoxStore>()(
           return b;
         });
 
+        const updatedPending = state.pendingMatches.filter(p => p.boxId !== boxId);
+
         set({
           boxGroups: updatedBoxes,
           chatMessages: [...state.chatMessages, ...newMessages],
+          pendingMatches: updatedPending,
         });
       },
 
@@ -362,12 +433,21 @@ export const useBoxStore = create<BoxStore>()(
       },
     }),
     {
-      name: 'flash-box-storage',
+      name: 'flash-box-storage-v2',
       partialize: (state) => ({
         boxGroups: state.boxGroups,
         chatMessages: state.chatMessages,
         boxResults: state.boxResults,
+        pendingMatches: state.pendingMatches,
       }),
+      onRehydrateStorage: () => (state) => {
+        if (state) {
+          state.boxGroups = reviveDates(state.boxGroups);
+          state.chatMessages = reviveDates(state.chatMessages);
+          state.boxResults = reviveDates(state.boxResults);
+          state.historyBoxes = reviveDates(state.historyBoxes);
+        }
+      },
     }
   )
 );

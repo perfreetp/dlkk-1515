@@ -9,6 +9,7 @@ import PaymentPage from '@/pages/PaymentPage';
 import HistoryPage from '@/pages/HistoryPage';
 import Header from '@/components/layout/Header';
 import BottomNav from '@/components/layout/BottomNav';
+import { useBoxStore } from '@/store/useBoxStore';
 
 function ScrollToTop() {
   const { pathname } = useLocation();
@@ -16,6 +17,19 @@ function ScrollToTop() {
   useEffect(() => {
     window.scrollTo(0, 0);
   }, [pathname]);
+  
+  return null;
+}
+
+function InitStore() {
+  const initPendingMatches = useBoxStore((state) => state.initPendingMatches);
+  
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      initPendingMatches();
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [initPendingMatches]);
   
   return null;
 }
@@ -44,6 +58,7 @@ export default function App() {
   return (
     <Router>
       <ScrollToTop />
+      <InitStore />
       <LayoutWrapper>
         <Routes>
           <Route path="/" element={<HallPage />} />
