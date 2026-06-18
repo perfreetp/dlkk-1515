@@ -42,7 +42,9 @@ interface BoxStore {
   getBoxById: (id: string) => BoxGroup | undefined;
   getMessagesByBoxId: (boxId: string) => ChatMessage[];
   getBoxResult: (boxId: string) => BoxResult | undefined;
-  generateBoxResult: (boxId: string) => BoxResult;
+  generateBoxResult: (boxId: string, forceRegenerate?: boolean) => BoxResult;
+  updateBoxResultFee: (boxId: string, feeBreakdown: FeeBreakdown, pickupMethod: PickupMethod) => void;
+  initHistoryResults: () => void;
   autoMatchPlayers: (boxId: string, count: number) => void;
   updateBoxStatus: (boxId: string, status: BoxStatus) => void;
   initPendingMatches: () => void;
@@ -448,9 +450,9 @@ export const useBoxStore = create<BoxStore>()(
         return get().boxResults[boxId];
       },
 
-      generateBoxResult: (boxId) => {
+      generateBoxResult: (boxId, forceRegenerate = false) => {
         const state = get();
-        const box = state.getBoxById(boxId);
+        const box = state.getBoxById(boxId) || state.historyBoxes.find(b => b.id === boxId);
         if (!box) {
           return {
             boxGroupId: boxId,
@@ -466,7 +468,7 @@ export const useBoxStore = create<BoxStore>()(
         }
 
         const existing = state.boxResults[boxId];
-        if (existing) {
+        if (existing && !forceRegenerate) {
           return existing;
         }
 
@@ -483,6 +485,41 @@ export const useBoxStore = create<BoxStore>()(
         });
 
         return result;
+      },
+
+      updateBoxResultFee: (boxId, feeBreakdown, pickupMethod) => {
+        const state = get();
+        const existing = state.boxResults[boxId];
+        if (!existing) return;
+
+        const updatedResult = {
+          ...existing,
+          feeBreakdown,
+          pickupMethod,
+          perPersonCost: feeBreakdown.totalPerPerson,
+        };
+
+        set({
+          boxResults: {
+            ...state.boxResults,
+            [boxId]: updatedResult,
+          },
+        });
+      },
+
+      initHistoryResults: () => {
+        const state = get();
+        state.historyBoxes.forEach(box => {
+          if (!state.boxResults[box.id]) {
+            const result = createResultForBox(box);
+            set({
+              boxResults: {
+                ...state.boxResults,
+                [box.id]: result,
+              },
+            });
+          }
+        });
       },
 
       autoMatchPlayers: (boxId, count) => {

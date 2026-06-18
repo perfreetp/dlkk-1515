@@ -31,7 +31,7 @@ import type { PickupMethod } from '@/types';
 export default function PaymentPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { getBoxById, getBoxResult, generateBoxResult, setPickupMethod, setProxyUser, calculateFeeBreakdown, quickAction } = useBoxStore();
+  const { getBoxById, getBoxResult, generateBoxResult, setPickupMethod, setProxyUser, calculateFeeBreakdown, quickAction, updateBoxResultFee } = useBoxStore();
   const { currentUser } = useUserStore();
   const [payMethod, setPayMethod] = useState('wechat');
   const [paying, setPaying] = useState(false);
@@ -122,6 +122,7 @@ export default function PaymentPage() {
     setTimeout(() => {
       setPaying(false);
       setPaid(true);
+      updateBoxResultFee(box.id, feeBreakdown, pickupMethod);
       quickAction(box.id, 'confirm_proxy', { proxyUserId: selectedProxy });
     }, 2000);
   };

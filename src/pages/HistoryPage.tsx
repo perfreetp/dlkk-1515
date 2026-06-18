@@ -33,7 +33,7 @@ import type { PickupMethod } from '@/types';
 export default function HistoryPage() {
   const navigate = useNavigate();
   const { currentUser } = useUserStore();
-  const { historyBoxes, boxResults, getBoxResult } = useBoxStore();
+  const { historyBoxes, boxResults, getBoxResult, generateBoxResult } = useBoxStore();
   const [activeTab, setActiveTab] = useState<'all' | 'hidden' | 'initiator'>('all');
   const [expandedBox, setExpandedBox] = useState<string | null>(null);
 
@@ -72,6 +72,12 @@ export default function HistoryPage() {
   ];
 
   const toggleExpand = (boxId: string) => {
+    if (expandedBox !== boxId) {
+      const existing = getBoxResult(boxId);
+      if (!existing) {
+        generateBoxResult(boxId, true);
+      }
+    }
     setExpandedBox(expandedBox === boxId ? null : boxId);
   };
 

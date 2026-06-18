@@ -23,13 +23,15 @@ function ScrollToTop() {
 
 function InitStore() {
   const initPendingMatches = useBoxStore((state) => state.initPendingMatches);
+  const initHistoryResults = useBoxStore((state) => state.initHistoryResults);
   
   useEffect(() => {
     const timer = setTimeout(() => {
       initPendingMatches();
+      initHistoryResults();
     }, 500);
     return () => clearTimeout(timer);
-  }, [initPendingMatches]);
+  }, [initPendingMatches, initHistoryResults]);
   
   return null;
 }

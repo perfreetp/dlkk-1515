@@ -70,7 +70,8 @@ export const getPickupText = (method: string): string => {
 export const getStatusText = (status: string): string => {
   const statusMap: Record<string, string> = {
     recruiting: '招募中',
-    full: '已满员',
+    full: '签到中',
+    unboxing: '拆盒中',
     ongoing: '进行中',
     completed: '已完成',
   };
@@ -81,6 +82,7 @@ export const getStatusColor = (status: string): string => {
   const colorMap: Record<string, string> = {
     recruiting: 'text-accent-green',
     full: 'text-accent-blue',
+    unboxing: 'text-accent-gold',
     ongoing: 'text-accent-gold',
     completed: 'text-text-muted',
   };

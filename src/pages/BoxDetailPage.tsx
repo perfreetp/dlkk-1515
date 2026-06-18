@@ -128,7 +128,6 @@ export default function BoxDetailPage() {
           <div className="flex items-center gap-2 mb-2">
             <Badge variant={statusColors[box.status]}>{getStatusText(box.status)}</Badge>
             <Badge variant="gold">有隐藏款</Badge>
-            {box.status === 'unboxing' && <Badge variant="purple">拆盒中</Badge>}
           </div>
           <h1 className="font-display text-2xl md:text-3xl font-bold text-white mb-1">
             {box.series.name}
