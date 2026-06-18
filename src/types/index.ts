@@ -23,7 +23,7 @@ export interface Series {
 
 export type DistributionRule = 'hidden_priority' | 'average' | 'rotation';
 export type PickupMethod = 'self_pickup' | 'proxy' | 'delivery';
-export type BoxStatus = 'recruiting' | 'full' | 'ongoing' | 'completed';
+export type BoxStatus = 'recruiting' | 'full' | 'ongoing' | 'unboxing' | 'completed';
 
 export interface BoxMember {
   userId: string;
@@ -33,6 +33,9 @@ export interface BoxMember {
   status: 'confirmed' | 'pending' | 'exited';
   joinedAt: Date;
   isInitiator: boolean;
+  checkedIn: boolean;
+  checkedInAt?: Date;
+  isProxy: boolean;
 }
 
 export interface BoxGroup {
@@ -55,6 +58,15 @@ export interface BoxGroup {
   initiatorId: string;
   description: string;
   distance?: string;
+  proxyUserId?: string;
+  activeVote?: VoteRecord;
+}
+
+export interface FeeBreakdown {
+  baseCost: number;
+  serviceFee: number;
+  deliveryFee: number;
+  totalPerPerson: number;
 }
 
 export interface BoxPiece {
@@ -69,6 +81,7 @@ export interface PieceDistribution {
   pieceId: string;
   userId: string;
   userName: string;
+  assignmentReason?: string;
 }
 
 export interface BoxResult {
@@ -78,6 +91,9 @@ export interface BoxResult {
   totalCost: number;
   perPersonCost: number;
   completedAt: Date;
+  feeBreakdown: FeeBreakdown;
+  ruleExplanation: string;
+  pickupMethod: PickupMethod;
 }
 
 export interface ChatMessage {
@@ -88,6 +104,19 @@ export interface ChatMessage {
   content: string;
   type: 'text' | 'system' | 'action';
   timestamp: Date;
+}
+
+export interface VoteRecord {
+  id: string;
+  type: 'change_time' | 'confirm_proxy' | 'remind_checkin';
+  proposerId: string;
+  targetValue?: string;
+  targetUserId?: string;
+  yesVotes: string[];
+  noVotes: string[];
+  createdAt: Date;
+  expiresAt: Date;
+  status: 'active' | 'passed' | 'rejected';
 }
 
 export interface City {

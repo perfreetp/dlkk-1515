@@ -3,7 +3,7 @@ import { cn } from '@/lib/utils';
 
 interface BadgeProps {
   children: ReactNode;
-  variant?: 'default' | 'pink' | 'blue' | 'gold' | 'green' | 'red' | 'purple';
+  variant?: 'default' | 'pink' | 'blue' | 'gold' | 'green' | 'red' | 'purple' | 'orange';
   size?: 'sm' | 'md';
   pulse?: boolean;
   className?: string;
@@ -24,6 +24,7 @@ export default function Badge({
     green: 'bg-accent-green/10 text-accent-green border border-accent-green/30',
     red: 'bg-accent-red/10 text-accent-red border border-accent-red/30',
     purple: 'bg-accent-purple/10 text-accent-purple border border-accent-purple/30',
+    orange: 'bg-accent-orange/10 text-accent-orange border border-accent-orange/30',
   };
 
   const sizes = {

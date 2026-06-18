@@ -15,6 +15,9 @@ import {
   UserPlus,
   LogOut,
   Sparkles,
+  CheckCircle2,
+  XCircle,
+  Calendar,
 } from 'lucide-react';
 import { useBoxStore } from '@/store/useBoxStore';
 import { useUserStore } from '@/store/useUserStore';
@@ -31,13 +34,14 @@ import {
   getPickupText,
   formatDate,
   formatPrice,
+  formatTime,
 } from '@/utils/format';
 import { cn } from '@/lib/utils';
 
 export default function BoxDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { joinBox, leaveBox, boxGroups } = useBoxStore();
+  const { joinBox, leaveBox, boxGroups, checkIn, startUnboxing } = useBoxStore();
   const { currentUser } = useUserStore();
   const [showJoinModal, setShowJoinModal] = useState(false);
   const [budget, setBudget] = useState(200);
@@ -58,11 +62,17 @@ export default function BoxDetailPage() {
   const isMember = box.members.some(m => m.userId === currentUser.id);
   const isInitiator = box.initiatorId === currentUser.id;
   const isFull = box.filledSlots >= box.totalSlots;
+  const currentMember = box.members.find(m => m.userId === currentUser.id);
+  const isCheckedIn = currentMember?.checkedIn ?? false;
+  const checkedInCount = box.members.filter(m => m.checkedIn).length;
+  const allCheckedIn = checkedInCount === box.filledSlots && box.filledSlots > 0;
+  const proxyMember = box.members.find(m => m.isProxy);
 
-  const statusColors: Record<string, 'pink' | 'green' | 'gold' | 'blue'> = {
+  const statusColors: Record<string, 'pink' | 'green' | 'gold' | 'blue' | 'purple'> = {
     recruiting: 'green',
     full: 'blue',
     ongoing: 'gold',
+    unboxing: 'purple',
     completed: 'pink',
   };
 
@@ -76,9 +86,19 @@ export default function BoxDetailPage() {
     leaveBox(box.id);
   };
 
-  const handleStartBox = () => {
-    navigate(`/box/${box.id}/result`);
+  const handleCheckIn = () => {
+    checkIn(box.id, currentUser.id);
   };
+
+  const handleStartBox = () => {
+    if (startUnboxing(box.id)) {
+      setTimeout(() => {
+        navigate(`/box/${box.id}/result`);
+      }, 500);
+    }
+  };
+
+  const canStartUnboxing = isInitiator && allCheckedIn && box.status !== 'unboxing' && box.status !== 'completed';
 
   return (
     <div className="min-h-screen pb-32 md:pb-8">
@@ -108,6 +128,7 @@ export default function BoxDetailPage() {
           <div className="flex items-center gap-2 mb-2">
             <Badge variant={statusColors[box.status]}>{getStatusText(box.status)}</Badge>
             <Badge variant="gold">有隐藏款</Badge>
+            {box.status === 'unboxing' && <Badge variant="purple">拆盒中</Badge>}
           </div>
           <h1 className="font-display text-2xl md:text-3xl font-bold text-white mb-1">
             {box.series.name}
@@ -141,10 +162,30 @@ export default function BoxDetailPage() {
             total={box.totalSlots}
             color="pink"
             showLabel
-            className="mb-4"
+            className="mb-3"
           />
 
-          <div className="flex items-center justify-between text-sm">
+          {box.status === 'full' || box.status === 'unboxing' ? (
+            <>
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-accent-green" />
+                  <span className="text-sm text-text-muted">签到进度</span>
+                </div>
+                <span className="text-sm font-medium text-accent-green">
+                  {checkedInCount} / {box.filledSlots} 人已签到
+                </span>
+              </div>
+              <ProgressBar
+                progress={checkedInCount}
+                total={box.filledSlots}
+                color="green"
+                showLabel={false}
+              />
+            </>
+          ) : null}
+
+          <div className="flex items-center justify-between text-sm mt-4">
             <div className="flex items-center gap-1.5 text-text-secondary">
               <MapPin className="w-4 h-4 text-accent-blue" />
               <span>{box.storeName}</span>
@@ -154,6 +195,25 @@ export default function BoxDetailPage() {
             )}
           </div>
         </GlassCard>
+
+        {proxyMember && (
+          <GlassCard className="p-4 md:p-6" glow="blue">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 rounded-xl bg-accent-blue/10 flex items-center justify-center">
+                <Package className="w-6 h-6 text-accent-blue" />
+              </div>
+              <div>
+                <p className="text-text-primary font-medium flex items-center gap-2">
+                  代取人已确认
+                  <Badge variant="blue" size="sm">{proxyMember.user.nickname}</Badge>
+                </p>
+                <p className="text-sm text-text-muted mt-1">
+                  {proxyMember.user.nickname} 将负责现场取货并分发
+                </p>
+              </div>
+            </div>
+          </GlassCard>
+        )}
 
         <GlassCard className="p-4 md:p-6">
           <div className="flex items-center justify-between mb-4">
@@ -178,7 +238,8 @@ export default function BoxDetailPage() {
                     'relative rounded-xl p-4 text-center transition-all',
                     isEmpty
                       ? 'bg-bg-glass border border-dashed border-border-light'
-                      : 'bg-bg-secondary/50 border border-border-light'
+                      : 'bg-bg-secondary/50 border border-border-light',
+                    member?.checkedIn && 'border-accent-green/50 bg-accent-green/5'
                   )}
                 >
                   {member ? (
@@ -195,6 +256,11 @@ export default function BoxDetailPage() {
                             <Crown className="w-3 h-3 text-bg-primary" />
                           </div>
                         )}
+                        {member.checkedIn && (
+                          <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-accent-green flex items-center justify-center animate-pulse">
+                            <CheckCircle2 className="w-3 h-3 text-bg-primary" />
+                          </div>
+                        )}
                       </div>
                       <p className="text-sm text-text-primary font-medium truncate">
                         {member.user.nickname}
@@ -202,10 +268,25 @@ export default function BoxDetailPage() {
                       <p className="text-xs text-text-muted mt-1">
                         预算 ¥{member.budget}
                       </p>
-                      <div className="mt-2">
-                        <Badge size="sm" variant={member.status === 'confirmed' ? 'green' : 'default'}>
-                          {member.status === 'confirmed' ? '已确认' : '待确认'}
-                        </Badge>
+                      <div className="mt-2 flex flex-wrap justify-center gap-1">
+                        {member.checkedIn ? (
+                          <Badge size="sm" variant="green">
+                            <CheckCircle2 className="w-3 h-3 mr-1" />
+                            已签到
+                          </Badge>
+                        ) : (
+                          box.status !== 'recruiting' && (
+                            <Badge size="sm" variant="default">
+                              <XCircle className="w-3 h-3 mr-1" />
+                              未签到
+                            </Badge>
+                          )
+                        )}
+                        {member.isProxy && (
+                          <Badge size="sm" variant="blue">
+                            代取
+                          </Badge>
+                        )}
                       </div>
                     </>
                   ) : (
@@ -219,7 +300,12 @@ export default function BoxDetailPage() {
                   )}
 
                   <div className="absolute top-2 left-2">
-                    <span className="w-6 h-6 rounded-full bg-bg-tertiary text-text-muted text-xs flex items-center justify-center font-display">
+                    <span className={cn(
+                      'w-6 h-6 rounded-full text-xs flex items-center justify-center font-display',
+                      member?.checkedIn
+                        ? 'bg-accent-green text-white'
+                        : 'bg-bg-tertiary text-text-muted'
+                    )}>
                       {index + 1}
                     </span>
                   </div>
@@ -254,8 +340,8 @@ export default function BoxDetailPage() {
                 <p className="text-text-primary font-medium">{getPickupText(box.pickupMethod)}</p>
                 <p className="text-sm text-text-muted mt-1">
                   {box.pickupMethod === 'self_pickup' && '到店自取，现场拆盒更有氛围'}
-                  {box.pickupMethod === 'proxy' && '发起人代取，同城快递寄出'}
-                  {box.pickupMethod === 'delivery' && '专人配送，最快30分钟送达'}
+                  {box.pickupMethod === 'proxy' && '发起人代取，同城快递寄出（服务费¥10/人）'}
+                  {box.pickupMethod === 'delivery' && '专人配送，最快30分钟送达（服务费¥10+配送¥20/人）'}
                 </p>
               </div>
             </div>
@@ -305,10 +391,20 @@ export default function BoxDetailPage() {
                 <MessageCircle className="w-4 h-4 mr-2" />
                 聊天
               </Button>
-              {isInitiator && box.status === 'full' ? (
+              {!isCheckedIn && (box.status === 'full' || box.status === 'unboxing') ? (
+                <Button variant="gold" className="flex-1" onClick={handleCheckIn}>
+                  <Calendar className="w-4 h-4 mr-2" />
+                  立即签到
+                </Button>
+              ) : canStartUnboxing ? (
                 <Button className="flex-1" onClick={handleStartBox}>
                   <Sparkles className="w-4 h-4 mr-2" />
                   开始拆盒
+                </Button>
+              ) : isCheckedIn ? (
+                <Button variant="outline" className="flex-1" disabled>
+                  <CheckCircle2 className="w-4 h-4 mr-2" />
+                  已签到
                 </Button>
               ) : (
                 <Button variant="outline" className="flex-1" onClick={handleLeave}>
@@ -338,17 +434,32 @@ export default function BoxDetailPage() {
             进入聊天
           </Button>
           {isMember ? (
-            isInitiator && box.status === 'full' ? (
-              <Button onClick={handleStartBox}>
-                <Sparkles className="w-4 h-4 mr-2" />
-                开始拆盒
-              </Button>
-            ) : (
-              <Button variant="outline" onClick={handleLeave}>
-                <LogOut className="w-4 h-4 mr-2" />
-                退出拼盒
-              </Button>
-            )
+            <>
+              {!isCheckedIn && (box.status === 'full' || box.status === 'unboxing') && (
+                <Button variant="gold" onClick={handleCheckIn}>
+                  <Calendar className="w-4 h-4 mr-2" />
+                  立即签到
+                </Button>
+              )}
+              {canStartUnboxing && (
+                <Button onClick={handleStartBox}>
+                  <Sparkles className="w-4 h-4 mr-2" />
+                  开始拆盒
+                </Button>
+              )}
+              {!canStartUnboxing && !isCheckedIn && box.status !== 'full' && box.status !== 'unboxing' && (
+                <Button variant="outline" onClick={handleLeave}>
+                  <LogOut className="w-4 h-4 mr-2" />
+                  退出拼盒
+                </Button>
+              )}
+              {isCheckedIn && (
+                <Button variant="outline" disabled>
+                  <CheckCircle2 className="w-4 h-4 mr-2" />
+                  已签到
+                </Button>
+              )}
+            </>
           ) : (
             <Button disabled={isFull} onClick={() => setShowJoinModal(true)}>
               <UserPlus className="w-4 h-4 mr-2" />

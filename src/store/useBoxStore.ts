@@ -1,8 +1,12 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { BoxGroup, BoxMember, ChatMessage, DistributionRule, PickupMethod, BoxStatus, BoxResult, BoxPiece, PieceDistribution } from '@/types';
+import type {
+  BoxGroup, BoxMember, ChatMessage, DistributionRule, PickupMethod,
+  BoxStatus, BoxResult, BoxPiece, PieceDistribution, FeeBreakdown,
+  VoteRecord
+} from '@/types';
 import { mockBoxGroups, mockChatMessages, currentUser, mockUsers, mockHistoryBoxes } from '@/data/mockDataIndex';
-import { generateId } from '@/utils/format';
+import { generateId, getRuleText } from '@/utils/format';
 
 interface BoxResultMap {
   [boxId: string]: BoxResult;
@@ -14,13 +18,23 @@ interface PendingMatch {
   createdAt: number;
 }
 
+interface ServiceFeeConfig {
+  [key: string]: { serviceFee: number; deliveryFee: number };
+}
+
+const SERVICE_FEES: ServiceFeeConfig = {
+  self_pickup: { serviceFee: 0, deliveryFee: 0 },
+  proxy: { serviceFee: 10, deliveryFee: 0 },
+  delivery: { serviceFee: 10, deliveryFee: 20 },
+};
+
 interface BoxStore {
   boxGroups: BoxGroup[];
   chatMessages: ChatMessage[];
   historyBoxes: BoxGroup[];
   boxResults: BoxResultMap;
   pendingMatches: PendingMatch[];
-  
+
   joinBox: (boxId: string, budget?: number) => boolean;
   leaveBox: (boxId: string) => boolean;
   addMessage: (boxId: string, content: string) => void;
@@ -32,12 +46,24 @@ interface BoxStore {
   autoMatchPlayers: (boxId: string, count: number) => void;
   updateBoxStatus: (boxId: string, status: BoxStatus) => void;
   initPendingMatches: () => void;
+
+  checkIn: (boxId: string, userId: string) => boolean;
+  startUnboxing: (boxId: string) => boolean;
+
+  calculateFeeBreakdown: (box: BoxGroup) => FeeBreakdown;
+  setPickupMethod: (boxId: string, method: PickupMethod) => void;
+  setProxyUser: (boxId: string, userId: string) => boolean;
+
+  createVote: (boxId: string, type: VoteRecord['type'], targetValue?: string, targetUserId?: string) => VoteRecord | null;
+  castVote: (boxId: string, voteId: string, userId: string, approve: boolean) => void;
+
+  quickAction: (boxId: string, action: 'remind_checkin' | 'confirm_proxy' | 'change_time', params?: any) => void;
 }
 
 const generateBoxPieces = (seriesName: string, totalPieces: number): BoxPiece[] => {
   const pieces: BoxPiece[] = [];
   const baseNames = ['基础款A', '基础款B', '基础款C', '基础款D', '基础款E', '基础款F', '稀有款A', '稀有款B', '稀有款C', '特别款', '限定款'];
-  
+
   for (let i = 0; i < totalPieces - 1; i++) {
     pieces.push({
       id: `piece-${i}`,
@@ -47,7 +73,7 @@ const generateBoxPieces = (seriesName: string, totalPieces: number): BoxPiece[] 
       rarity: i < totalPieces - 3 ? 'common' : 'rare',
     });
   }
-  
+
   pieces.push({
     id: `piece-hidden`,
     name: `${seriesName.slice(0, 4)} - 隐藏款`,
@@ -55,7 +81,7 @@ const generateBoxPieces = (seriesName: string, totalPieces: number): BoxPiece[] 
     isHidden: true,
     rarity: 'hidden',
   });
-  
+
   return pieces;
 };
 
@@ -68,40 +94,123 @@ const shuffleArray = <T,>(array: T[]): T[] => {
   return shuffled;
 };
 
+const getRuleExplanation = (rule: DistributionRule, memberCount: number): string => {
+  switch (rule) {
+    case 'hidden_priority':
+      return '隐藏款优先规则：隐藏款首先按报名顺序分配给第一位成员；剩余普通款随机均分给所有人';
+    case 'average':
+      return '普通款均分规则：所有款式（含隐藏款）完全随机分配，每人机会均等';
+    case 'rotation':
+      return '按序轮转规则：按座位顺序轮流挑选，第1轮1→2→3→4，第2轮4→3→2→1，依次轮转';
+    default:
+      return '分配完成';
+  }
+};
+
+const createDistribution = (
+  pieces: BoxPiece[],
+  members: BoxMember[],
+  rule: DistributionRule
+): PieceDistribution[] => {
+  const distribution: PieceDistribution[] = [];
+  const hiddenPiece = pieces.find(p => p.isHidden);
+  const regularPieces = pieces.filter(p => !p.isHidden);
+
+  if (rule === 'hidden_priority' && hiddenPiece) {
+    distribution.push({
+      pieceId: hiddenPiece.id,
+      userId: members[0].userId,
+      userName: members[0].user.nickname,
+      assignmentReason: '隐藏款优先：按报名顺序分配给发起人',
+    });
+
+    const shuffledRegular = shuffleArray(regularPieces);
+    shuffledRegular.forEach((piece, idx) => {
+      const memberIdx = idx % members.length;
+      distribution.push({
+        pieceId: piece.id,
+        userId: members[memberIdx].userId,
+        userName: members[memberIdx].user.nickname,
+        assignmentReason: '普通款随机均分',
+      });
+    });
+  } else if (rule === 'average') {
+    const allShuffled = shuffleArray(pieces);
+    allShuffled.forEach((piece, idx) => {
+      const memberIdx = idx % members.length;
+      distribution.push({
+        pieceId: piece.id,
+        userId: members[memberIdx].userId,
+        userName: members[memberIdx].user.nickname,
+        assignmentReason: piece.isHidden ? '随机抽取获得隐藏款' : '随机均分',
+      });
+    });
+  } else {
+    const sortedMembers = [...members].sort((a, b) => a.slotIndex - b.slotIndex);
+    const allPieces = hiddenPiece ? [hiddenPiece, ...shuffleArray(regularPieces)] : shuffleArray(regularPieces);
+
+    allPieces.forEach((piece, idx) => {
+      const round = Math.floor(idx / sortedMembers.length);
+      const posInRound = idx % sortedMembers.length;
+      const memberIdx = round % 2 === 0 ? posInRound : (sortedMembers.length - 1 - posInRound);
+      const member = sortedMembers[memberIdx];
+
+      distribution.push({
+        pieceId: piece.id,
+        userId: member.userId,
+        userName: member.user.nickname,
+        assignmentReason: piece.isHidden
+          ? `第${round + 1}轮${round % 2 === 0 ? '正序' : '倒序'}轮选`
+          : `第${round + 1}轮${round % 2 === 0 ? '正序' : '倒序'}轮选`,
+      });
+    });
+  }
+
+  return distribution;
+};
+
 const createResultForBox = (box: BoxGroup): BoxResult => {
   const pieces = generateBoxPieces(box.series.name, box.series.totalPieces);
-  const shuffledPieces = shuffleArray(pieces);
-  
-  const distribution: PieceDistribution[] = shuffledPieces.map((piece, index) => {
-    const memberIndex = index % box.members.length;
-    const member = box.members[memberIndex];
-    return {
-      pieceId: piece.id,
-      userId: member.userId,
-      userName: member.user.nickname,
-    };
-  });
-  
-  const totalCost = box.series.price * box.series.totalPieces;
+  const distribution = createDistribution(pieces, box.members, box.rule);
+
+  const fees = calculateFeeBreakdownStatic(box);
+  const totalCost = box.series.price * box.series.totalPieces +
+    (fees.serviceFee + fees.deliveryFee) * box.filledSlots;
   const perPersonCost = Math.round(totalCost / Math.max(1, box.filledSlots));
-  
+
   return {
     boxGroupId: box.id,
-    pieces: shuffledPieces,
+    pieces,
     distribution,
     totalCost,
     perPersonCost,
     completedAt: new Date(),
+    feeBreakdown: {
+      ...fees,
+      totalPerPerson: perPersonCost,
+    },
+    ruleExplanation: getRuleExplanation(box.rule, box.members.length),
+    pickupMethod: box.pickupMethod,
+  };
+};
+
+const calculateFeeBreakdownStatic = (box: BoxGroup): Omit<FeeBreakdown, 'totalPerPerson'> => {
+  const baseCost = Math.round((box.series.price * box.series.totalPieces) / Math.max(1, box.filledSlots));
+  const fees = SERVICE_FEES[box.pickupMethod] || SERVICE_FEES.self_pickup;
+  return {
+    baseCost,
+    serviceFee: fees.serviceFee,
+    deliveryFee: fees.deliveryFee,
   };
 };
 
 const reviveDates = <T,>(obj: T): T => {
   if (!obj || typeof obj !== 'object') return obj;
-  
+
   if (Array.isArray(obj)) {
     return obj.map(item => reviveDates(item)) as unknown as T;
   }
-  
+
   const result: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(obj)) {
     if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(value)) {
@@ -115,10 +224,21 @@ const reviveDates = <T,>(obj: T): T => {
   return result as T;
 };
 
+const ensureMemberDefaults = (members: BoxMember[]): BoxMember[] => {
+  return members.map(m => ({
+    ...m,
+    checkedIn: m.checkedIn ?? false,
+    isProxy: m.isProxy ?? false,
+  }));
+};
+
 export const useBoxStore = create<BoxStore>()(
   persist(
     (set, get) => ({
-      boxGroups: mockBoxGroups,
+      boxGroups: mockBoxGroups.map(box => ({
+        ...box,
+        members: ensureMemberDefaults(box.members),
+      })),
       chatMessages: mockChatMessages,
       historyBoxes: mockHistoryBoxes,
       boxResults: {},
@@ -127,13 +247,13 @@ export const useBoxStore = create<BoxStore>()(
       initPendingMatches: () => {
         const state = get();
         const now = Date.now();
-        
+
         state.pendingMatches.forEach((pending) => {
           const box = state.getBoxById(pending.boxId);
           if (!box) return;
           if (box.filledSlots >= box.totalSlots) return;
           if (now - pending.createdAt > 30000) return;
-          
+
           const remaining = pending.targetCount - (box.filledSlots - 1);
           if (remaining > 0) {
             setTimeout(() => {
@@ -156,6 +276,8 @@ export const useBoxStore = create<BoxStore>()(
           status: 'confirmed',
           joinedAt: new Date(),
           isInitiator: false,
+          checkedIn: false,
+          isProxy: false,
         };
 
         const updatedBoxes = state.boxGroups.map(b => {
@@ -242,7 +364,7 @@ export const useBoxStore = create<BoxStore>()(
       createBox: (boxData) => {
         const state = get();
         const newId = `box-${Date.now()}`;
-        
+
         const initiatorMember: BoxMember = {
           userId: currentUser.id,
           user: currentUser,
@@ -251,6 +373,8 @@ export const useBoxStore = create<BoxStore>()(
           status: 'confirmed',
           joinedAt: new Date(),
           isInitiator: true,
+          checkedIn: false,
+          isProxy: false,
         };
 
         const meetTime = boxData.meetTime || new Date(Date.now() + 3600000);
@@ -299,7 +423,7 @@ export const useBoxStore = create<BoxStore>()(
           createdAt: Date.now(),
         };
 
-        set({ 
+        set({
           boxGroups: [newBox, ...state.boxGroups],
           chatMessages: [...state.chatMessages, welcomeMessage],
           pendingMatches: [...state.pendingMatches, newPending],
@@ -335,6 +459,9 @@ export const useBoxStore = create<BoxStore>()(
             totalCost: 0,
             perPersonCost: 0,
             completedAt: new Date(),
+            feeBreakdown: { baseCost: 0, serviceFee: 0, deliveryFee: 0, totalPerPerson: 0 },
+            ruleExplanation: '',
+            pickupMethod: 'self_pickup' as PickupMethod,
           };
         }
 
@@ -344,13 +471,13 @@ export const useBoxStore = create<BoxStore>()(
         }
 
         const result = createResultForBox(box);
-        
+
         set({
           boxResults: {
             ...state.boxResults,
             [boxId]: result,
           },
-          boxGroups: state.boxGroups.map(b => 
+          boxGroups: state.boxGroups.map(b =>
             b.id === boxId ? { ...b, status: 'completed' as BoxStatus } : b
           ),
         });
@@ -364,19 +491,19 @@ export const useBoxStore = create<BoxStore>()(
         if (!box || box.filledSlots >= box.totalSlots) return;
 
         const availableUsers = mockUsers.filter(
-          u => u.id !== currentUser.id 
+          u => u.id !== currentUser.id
             && !box.members.some(m => m.userId === u.id)
             && u.city === box.city
         );
-        
+
         const shuffledUsers = shuffleArray(availableUsers);
         const playersToAdd = Math.min(count, box.totalSlots - box.filledSlots, shuffledUsers.length);
-        
+
         if (playersToAdd <= 0) return;
 
         const newMembers: BoxMember[] = [];
         const newMessages: ChatMessage[] = [];
-        
+
         for (let i = 0; i < playersToAdd; i++) {
           const user = shuffledUsers[i];
           const member: BoxMember = {
@@ -387,9 +514,11 @@ export const useBoxStore = create<BoxStore>()(
             status: 'confirmed',
             joinedAt: new Date(),
             isInitiator: false,
+            checkedIn: false,
+            isProxy: false,
           };
           newMembers.push(member);
-          
+
           newMessages.push({
             id: `msg-${Date.now()}-${i}-${boxId}`,
             boxGroupId: boxId,
@@ -431,9 +560,306 @@ export const useBoxStore = create<BoxStore>()(
         );
         set({ boxGroups: updatedBoxes });
       },
+
+      checkIn: (boxId, userId) => {
+        const state = get();
+        const box = state.getBoxById(boxId);
+        if (!box) return false;
+
+        const member = box.members.find(m => m.userId === userId);
+        if (!member || member.checkedIn) return false;
+
+        const updatedBoxes = state.boxGroups.map(b => {
+          if (b.id === boxId) {
+            return {
+              ...b,
+              members: b.members.map(m =>
+                m.userId === userId
+                  ? { ...m, checkedIn: true, checkedInAt: new Date() }
+                  : m
+              ),
+            };
+          }
+          return b;
+        });
+
+        const systemMessage: ChatMessage = {
+          id: `msg-${Date.now()}-checkin`,
+          boxGroupId: boxId,
+          userId: 'system',
+          user: member.user,
+          content: `✅ ${member.user.nickname} 已到店签到`,
+          type: 'action',
+          timestamp: new Date(),
+        };
+
+        set({
+          boxGroups: updatedBoxes,
+          chatMessages: [...state.chatMessages, systemMessage],
+        });
+
+        return true;
+      },
+
+      startUnboxing: (boxId) => {
+        const state = get();
+        const box = state.getBoxById(boxId);
+        if (!box) return false;
+
+        const allCheckedIn = box.members.every(m => m.checkedIn);
+        if (!allCheckedIn) return false;
+        if (box.initiatorId !== currentUser.id) return false;
+
+        const updatedBoxes = state.boxGroups.map(b =>
+          b.id === boxId ? { ...b, status: 'unboxing' as BoxStatus } : b
+        );
+
+        const systemMessage: ChatMessage = {
+          id: `msg-${Date.now()}-start`,
+          boxGroupId: boxId,
+          userId: 'system',
+          user: currentUser,
+          content: `🎉 全员到齐！发起人开始拆盒，分配规则：${getRuleText(box.rule)}`,
+          type: 'action',
+          timestamp: new Date(),
+        };
+
+        set({
+          boxGroups: updatedBoxes,
+          chatMessages: [...state.chatMessages, systemMessage],
+        });
+
+        return true;
+      },
+
+      calculateFeeBreakdown: (box) => {
+        const fees = calculateFeeBreakdownStatic(box);
+        return {
+          ...fees,
+          totalPerPerson: fees.baseCost + fees.serviceFee + fees.deliveryFee,
+        };
+      },
+
+      setPickupMethod: (boxId, method) => {
+        const state = get();
+        const updatedBoxes = state.boxGroups.map(b =>
+          b.id === boxId ? { ...b, pickupMethod: method } : b
+        );
+        set({ boxGroups: updatedBoxes });
+      },
+
+      setProxyUser: (boxId, userId) => {
+        const state = get();
+        const box = state.getBoxById(boxId);
+        if (!box) return false;
+
+        const userExists = box.members.some(m => m.userId === userId);
+        if (!userExists) return false;
+
+        const updatedBoxes = state.boxGroups.map(b => {
+          if (b.id === boxId) {
+            return {
+              ...b,
+              proxyUserId: userId,
+              members: b.members.map(m => ({
+                ...m,
+                isProxy: m.userId === userId,
+              })),
+            };
+          }
+          return b;
+        });
+
+        const user = box.members.find(m => m.userId === userId)?.user;
+        const systemMessage: ChatMessage = {
+          id: `msg-${Date.now()}-proxy`,
+          boxGroupId: boxId,
+          userId: 'system',
+          user: currentUser,
+          content: `📦 ${user?.nickname} 已被确认为代取人`,
+          type: 'action',
+          timestamp: new Date(),
+        };
+
+        set({
+          boxGroups: updatedBoxes,
+          chatMessages: [...state.chatMessages, systemMessage],
+        });
+
+        return true;
+      },
+
+      createVote: (boxId, type, targetValue, targetUserId) => {
+        const state = get();
+        const box = state.getBoxById(boxId);
+        if (!box || box.activeVote?.status === 'active') return null;
+
+        const vote: VoteRecord = {
+          id: `vote-${Date.now()}`,
+          type,
+          proposerId: currentUser.id,
+          targetValue,
+          targetUserId,
+          yesVotes: [],
+          noVotes: [],
+          createdAt: new Date(),
+          expiresAt: new Date(Date.now() + 5 * 60 * 1000),
+          status: 'active',
+        };
+
+        const updatedBoxes = state.boxGroups.map(b =>
+          b.id === boxId ? { ...b, activeVote: vote } : b
+        );
+
+        let content = '';
+        if (type === 'change_time' && targetValue) {
+          content = `📋 ${currentUser.nickname} 发起投票：将见面时间改为 ${targetValue}`;
+        } else if (type === 'confirm_proxy' && targetUserId) {
+          const targetUser = box.members.find(m => m.userId === targetUserId)?.user;
+          content = `📋 ${currentUser.nickname} 发起投票：确认 ${targetUser?.nickname} 为代取人`;
+        } else if (type === 'remind_checkin') {
+          content = `📋 ${currentUser.nickname} 发起投票：提醒未签到成员`;
+        }
+
+        const systemMessage: ChatMessage = {
+          id: `msg-${Date.now()}-vote`,
+          boxGroupId: boxId,
+          userId: 'system',
+          user: currentUser,
+          content,
+          type: 'action',
+          timestamp: new Date(),
+        };
+
+        set({
+          boxGroups: updatedBoxes,
+          chatMessages: [...state.chatMessages, systemMessage],
+        });
+
+        return vote;
+      },
+
+      castVote: (boxId, voteId, userId, approve) => {
+        const state = get();
+        const box = state.getBoxById(boxId);
+        if (!box || !box.activeVote || box.activeVote.id !== voteId) return;
+
+        const hasVoted = [...box.activeVote.yesVotes, ...box.activeVote.noVotes].includes(userId);
+        if (hasVoted) return;
+
+        const updatedVote: VoteRecord = {
+          ...box.activeVote,
+          yesVotes: approve ? [...box.activeVote.yesVotes, userId] : box.activeVote.yesVotes,
+          noVotes: !approve ? [...box.activeVote.noVotes, userId] : box.activeVote.noVotes,
+        };
+
+        const totalVotes = updatedVote.yesVotes.length + updatedVote.noVotes.length;
+        const majority = Math.ceil(box.members.length / 2);
+        let newStatus: VoteRecord['status'] = 'active';
+
+        if (updatedVote.yesVotes.length >= majority) {
+          newStatus = 'passed';
+        } else if (updatedVote.noVotes.length >= majority) {
+          newStatus = 'rejected';
+        } else if (totalVotes >= box.members.length) {
+          newStatus = updatedVote.yesVotes.length > updatedVote.noVotes.length ? 'passed' : 'rejected';
+        }
+
+        updatedVote.status = newStatus;
+
+        const voter = box.members.find(m => m.userId === userId)?.user;
+        const actionMessage: ChatMessage = {
+          id: `msg-${Date.now()}-cast`,
+          boxGroupId: boxId,
+          userId: 'system',
+          user: currentUser,
+          content: `${voter?.nickname} ${approve ? '赞成' : '反对'}，当前 ${updatedVote.yesVotes.length}赞 ${updatedVote.noVotes.length}反`,
+          type: 'action',
+          timestamp: new Date(),
+        };
+
+        const newMessages: ChatMessage[] = [actionMessage];
+
+        if (newStatus !== 'active') {
+          const resultContent = newStatus === 'passed'
+            ? `✅ 投票通过！${updatedVote.type === 'change_time' ? '时间已更新' : updatedVote.type === 'confirm_proxy' ? '代取人已确认' : '已提醒签到'}`
+            : '❌ 投票未通过';
+
+          newMessages.push({
+            id: `msg-${Date.now()}-result`,
+            boxGroupId: boxId,
+            userId: 'system',
+            user: currentUser,
+            content: resultContent,
+            type: 'action',
+            timestamp: new Date(),
+          });
+        }
+
+        const updatedBoxes = state.boxGroups.map(b => {
+          if (b.id === boxId) {
+            let finalBox = { ...b, activeVote: updatedVote };
+            if (newStatus === 'passed') {
+              if (updatedVote.type === 'change_time' && updatedVote.targetValue) {
+                const [datePart, timePart] = updatedVote.targetValue.split(' ');
+                if (datePart && timePart) {
+                  finalBox = { ...finalBox, meetTime: new Date(`${datePart}T${timePart}`) };
+                }
+              } else if (updatedVote.type === 'confirm_proxy' && updatedVote.targetUserId) {
+                finalBox = {
+                  ...finalBox,
+                  proxyUserId: updatedVote.targetUserId,
+                  members: finalBox.members.map(m => ({
+                    ...m,
+                    isProxy: m.userId === updatedVote.targetUserId,
+                  })),
+                };
+              }
+            }
+            if (newStatus !== 'active') {
+              finalBox = { ...finalBox, activeVote: undefined };
+            }
+            return finalBox;
+          }
+          return b;
+        });
+
+        set({
+          boxGroups: updatedBoxes,
+          chatMessages: [...state.chatMessages, ...newMessages],
+        });
+      },
+
+      quickAction: (boxId, action, params) => {
+        const state = get();
+        const box = state.getBoxById(boxId);
+        if (!box) return;
+
+        if (action === 'remind_checkin') {
+          const unchecked = box.members.filter(m => !m.checkedIn);
+          if (unchecked.length === 0) return;
+
+          const names = unchecked.map(m => m.user.nickname).join('、');
+          const systemMessage: ChatMessage = {
+            id: `msg-${Date.now()}-remind`,
+            boxGroupId: boxId,
+            userId: 'system',
+            user: currentUser,
+            content: `⏰ ${currentUser.nickname} 提醒 ${names} 尽快签到`,
+            type: 'action',
+            timestamp: new Date(),
+          };
+
+          set({ chatMessages: [...state.chatMessages, systemMessage] });
+        } else if (action === 'confirm_proxy' && params?.userId) {
+          state.setProxyUser(boxId, params.userId);
+        } else if (action === 'change_time' && params?.newTime) {
+          state.createVote(boxId, 'change_time', params.newTime);
+        }
+      },
     }),
     {
-      name: 'flash-box-storage-v2',
+      name: 'flash-box-storage-v3',
       partialize: (state) => ({
         boxGroups: state.boxGroups,
         chatMessages: state.chatMessages,
@@ -442,7 +868,10 @@ export const useBoxStore = create<BoxStore>()(
       }),
       onRehydrateStorage: () => (state) => {
         if (state) {
-          state.boxGroups = reviveDates(state.boxGroups);
+          state.boxGroups = reviveDates(state.boxGroups).map((box: BoxGroup) => ({
+            ...box,
+            members: ensureMemberDefaults(box.members),
+          }));
           state.chatMessages = reviveDates(state.chatMessages);
           state.boxResults = reviveDates(state.boxResults);
           state.historyBoxes = reviveDates(state.historyBoxes);

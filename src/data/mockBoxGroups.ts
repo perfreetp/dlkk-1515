@@ -2,10 +2,11 @@ import type { BoxGroup, BoxMember, ChatMessage, BoxPiece, BoxResult } from '@/ty
 import { mockSeries } from './mockSeries';
 import { mockUsers } from './mockUsers';
 
-const createBoxMembers = (count: number, initiatorIndex: number = 0): BoxMember[] => {
+const createBoxMembers = (count: number, initiatorIndex: number = 0, allCheckedIn: boolean = false): BoxMember[] => {
   const members: BoxMember[] = [];
   for (let i = 0; i < count; i++) {
     const user = mockUsers[(initiatorIndex + i) % mockUsers.length];
+    const checkedIn = allCheckedIn || Math.random() > 0.3;
     members.push({
       userId: user.id,
       user,
@@ -14,6 +15,9 @@ const createBoxMembers = (count: number, initiatorIndex: number = 0): BoxMember[
       status: 'confirmed',
       joinedAt: new Date(Date.now() - Math.random() * 3600000),
       isInitiator: i === 0,
+      checkedIn,
+      checkedInAt: checkedIn ? new Date(Date.now() - Math.random() * 1800000) : undefined,
+      isProxy: false,
     });
   }
   return members;
@@ -246,22 +250,30 @@ export const mockBoxResult: BoxResult = {
   boxGroupId: 'box1',
   pieces: mockBoxPieces,
   distribution: [
-    { pieceId: 'p1', userId: 'user1', userName: '潮玩达人小K' },
-    { pieceId: 'p2', userId: 'user2', userName: '隐藏款收割机' },
-    { pieceId: 'p3', userId: 'user3', userName: '泡泡玛特铁粉' },
-    { pieceId: 'p4', userId: 'user4', userName: '拆盒新人' },
-    { pieceId: 'p5', userId: 'user1', userName: '潮玩达人小K' },
-    { pieceId: 'p6', userId: 'user2', userName: '隐藏款收割机' },
-    { pieceId: 'p7', userId: 'user3', userName: '泡泡玛特铁粉' },
-    { pieceId: 'p8', userId: 'user4', userName: '拆盒新人' },
-    { pieceId: 'p9', userId: 'user1', userName: '潮玩达人小K' },
-    { pieceId: 'p10', userId: 'user2', userName: '隐藏款收割机' },
-    { pieceId: 'p11', userId: 'user3', userName: '泡泡玛特铁粉' },
-    { pieceId: 'p12', userId: 'user2', userName: '隐藏款收割机' },
+    { pieceId: 'p1', userId: 'user1', userName: '潮玩达人小K', assignmentReason: '普通款随机均分' },
+    { pieceId: 'p2', userId: 'user2', userName: '隐藏款收割机', assignmentReason: '普通款随机均分' },
+    { pieceId: 'p3', userId: 'user3', userName: '泡泡玛特铁粉', assignmentReason: '普通款随机均分' },
+    { pieceId: 'p4', userId: 'user4', userName: '拆盒新人', assignmentReason: '普通款随机均分' },
+    { pieceId: 'p5', userId: 'user1', userName: '潮玩达人小K', assignmentReason: '普通款随机均分' },
+    { pieceId: 'p6', userId: 'user2', userName: '隐藏款收割机', assignmentReason: '普通款随机均分' },
+    { pieceId: 'p7', userId: 'user3', userName: '泡泡玛特铁粉', assignmentReason: '普通款随机均分' },
+    { pieceId: 'p8', userId: 'user4', userName: '拆盒新人', assignmentReason: '普通款随机均分' },
+    { pieceId: 'p9', userId: 'user1', userName: '潮玩达人小K', assignmentReason: '普通款随机均分' },
+    { pieceId: 'p10', userId: 'user2', userName: '隐藏款收割机', assignmentReason: '普通款随机均分' },
+    { pieceId: 'p11', userId: 'user3', userName: '泡泡玛特铁粉', assignmentReason: '普通款随机均分' },
+    { pieceId: 'p12', userId: 'user2', userName: '隐藏款收割机', assignmentReason: '隐藏款优先：按报名顺序分配给发起人' },
   ],
   totalCost: 828,
   perPersonCost: 207,
   completedAt: new Date(Date.now() - 3600000),
+  feeBreakdown: {
+    baseCost: 207,
+    serviceFee: 0,
+    deliveryFee: 0,
+    totalPerPerson: 207,
+  },
+  ruleExplanation: '隐藏款优先规则：隐藏款首先按报名顺序分配给第一位成员；剩余普通款随机均分给所有人',
+  pickupMethod: 'self_pickup',
 };
 
 export const mockHistoryBoxes: BoxGroup[] = [
@@ -270,23 +282,31 @@ export const mockHistoryBoxes: BoxGroup[] = [
     id: 'history1',
     status: 'completed',
     meetTime: new Date(Date.now() - 86400000 * 3),
+    members: createBoxMembers(6, 2, true),
+    proxyUserId: 'user4',
   },
   {
     ...mockBoxGroups[0],
     id: 'history2',
     status: 'completed',
     meetTime: new Date(Date.now() - 86400000 * 7),
+    members: createBoxMembers(4, 0, true),
   },
   {
     ...mockBoxGroups[1],
     id: 'history3',
     status: 'completed',
     meetTime: new Date(Date.now() - 86400000 * 14),
+    members: createBoxMembers(3, 1, true),
+    pickupMethod: 'proxy',
+    proxyUserId: 'user3',
   },
   {
     ...mockBoxGroups[3],
     id: 'history4',
     status: 'completed',
     meetTime: new Date(Date.now() - 86400000 * 21),
+    members: createBoxMembers(2, 4, true),
+    pickupMethod: 'delivery',
   },
 ];

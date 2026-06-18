@@ -13,6 +13,11 @@ import {
   Settings,
   Bell,
   User,
+  Receipt,
+  Package,
+  Truck,
+  UserCheck,
+  Info,
 } from 'lucide-react';
 import { useUserStore } from '@/store/useUserStore';
 import { useBoxStore } from '@/store/useBoxStore';
@@ -20,15 +25,23 @@ import GlassCard from '@/components/ui/GlassCard';
 import Badge from '@/components/ui/Badge';
 import Avatar from '@/components/ui/Avatar';
 import Button from '@/components/ui/Button';
-import { mockHistoryBoxes, mockBoxResult, mockBoxPieces } from '@/data/mockDataIndex';
+import { mockBoxPieces } from '@/data/mockDataIndex';
 import { formatDateShort, formatPrice, getRuleText } from '@/utils/format';
 import { cn } from '@/lib/utils';
+import type { PickupMethod } from '@/types';
 
 export default function HistoryPage() {
   const navigate = useNavigate();
   const { currentUser } = useUserStore();
-  const { historyBoxes } = useBoxStore();
+  const { historyBoxes, boxResults, getBoxResult } = useBoxStore();
   const [activeTab, setActiveTab] = useState<'all' | 'hidden' | 'initiator'>('all');
+  const [expandedBox, setExpandedBox] = useState<string | null>(null);
+
+  const pickupMethodLabels: Record<PickupMethod, { name: string; icon: any }> = {
+    self_pickup: { name: '到店自提', icon: Package },
+    proxy: { name: '代取服务', icon: UserCheck },
+    delivery: { name: '同城配送', icon: Truck },
+  };
 
   const stats = [
     { label: '拼盒次数', value: currentUser.totalBoxes, icon: Gift, color: 'text-accent-pink' },
@@ -39,9 +52,12 @@ export default function HistoryPage() {
 
   const filteredHistory = historyBoxes.filter(box => {
     if (activeTab === 'hidden') {
-      return mockBoxPieces.some(p => p.isHidden && 
-        mockBoxResult.distribution.some(d => d.pieceId === p.id && d.userId === currentUser.id)
-      );
+      const result = getBoxResult(box.id);
+      if (!result) return false;
+      return result.distribution.some(d => {
+        const piece = result.pieces.find(p => p.id === d.pieceId);
+        return piece?.isHidden && d.userId === currentUser.id;
+      });
     }
     if (activeTab === 'initiator') {
       return box.initiatorId === currentUser.id;
@@ -54,6 +70,10 @@ export default function HistoryPage() {
     { id: 'hidden', label: '中隐藏' },
     { id: 'initiator', label: '我发起' },
   ];
+
+  const toggleExpand = (boxId: string) => {
+    setExpandedBox(expandedBox === boxId ? null : boxId);
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-bg-secondary to-bg-primary pb-24">
@@ -136,19 +156,28 @@ export default function HistoryPage() {
 
         <div className="space-y-4">
           {filteredHistory.map((box, index) => {
-            const hasHidden = mockBoxPieces.some(p => p.isHidden && 
-              mockBoxResult.distribution.some(d => d.pieceId === p.id && d.userId === currentUser.id)
-            );
+            const result = getBoxResult(box.id);
+            const hasHidden = result?.distribution.some(d => {
+              const piece = result.pieces.find(p => p.id === d.pieceId);
+              return piece?.isHidden && d.userId === currentUser.id;
+            });
             const isInitiator = box.initiatorId === currentUser.id;
+            const isExpanded = expandedBox === box.id;
+            const myPieces = result?.distribution.filter(d => d.userId === currentUser.id) || [];
+            const feeBreakdown = result?.feeBreakdown;
+            const pickupInfo = pickupMethodLabels[box.pickupMethod];
+            const PickupIcon = pickupInfo?.icon || Package;
 
             return (
               <GlassCard
                 key={box.id}
-                className="overflow-hidden cursor-pointer hover:border-border-pink transition-colors"
-                onClick={() => navigate(`/box/${box.id}`)}
+                className="overflow-hidden hover:border-border-pink transition-colors"
                 style={{ animationDelay: `${index * 0.1}s` }}
               >
-                <div className="flex">
+                <div
+                  className="flex cursor-pointer"
+                  onClick={() => toggleExpand(box.id)}
+                >
                   <div className="w-24 h-24 shrink-0">
                     <img
                       src={box.series.coverImage}
@@ -175,22 +204,142 @@ export default function HistoryPage() {
                           我发起
                         </Badge>
                       )}
+                      <Badge variant="green" size="sm">
+                        <PickupIcon className="w-3 h-3 mr-1" />
+                        {pickupInfo?.name}
+                      </Badge>
                     </div>
                     <div className="flex items-center justify-between text-sm">
                       <div className="flex items-center gap-1 text-text-muted">
                         <Calendar className="w-3.5 h-3.5" />
                         <span>{formatDateShort(box.meetTime)}</span>
                       </div>
-                      <div className="flex items-center gap-1 text-accent-gold">
-                        <span>人均</span>
-                        <span className="font-bold">{formatPrice(mockBoxResult.perPersonCost)}</span>
+                      <div className="flex items-center gap-1">
+                        <span className="text-text-muted">人均</span>
+                        <span className="font-bold text-accent-gold">
+                          {formatPrice(feeBreakdown?.totalPerPerson || result?.perPersonCost || 0)}
+                        </span>
+                        <ChevronRight className={cn(
+                          'w-4 h-4 text-text-muted transition-transform',
+                          isExpanded && 'rotate-90'
+                        )} />
                       </div>
                     </div>
                   </div>
-                  <div className="flex items-center pr-4">
-                    <ChevronRight className="w-5 h-5 text-text-muted" />
-                  </div>
                 </div>
+
+                {isExpanded && result && (
+                  <div className="border-t border-border-light p-4 bg-bg-tertiary/30 animate-slide-down">
+                    {myPieces.length > 0 && (
+                      <div className="mb-4">
+                        <h4 className="text-sm font-medium text-text-primary mb-2 flex items-center gap-2">
+                          <Gift className="w-4 h-4 text-accent-gold" />
+                          我的战利品
+                        </h4>
+                        <div className="flex flex-wrap gap-2">
+                          {myPieces.map((d, idx) => {
+                            const piece = result.pieces.find(p => p.id === d.pieceId);
+                            if (!piece) return null;
+                            return (
+                              <div
+                                key={idx}
+                                className={cn(
+                                  'flex items-center gap-2 px-3 py-2 rounded-lg text-sm',
+                                  piece.isHidden
+                                    ? 'bg-accent-gold/10 border border-accent-gold/30'
+                                    : 'bg-bg-glass border border-border-light'
+                                )}
+                              >
+                                <Gift className={cn(
+                                  'w-4 h-4',
+                                  piece.isHidden ? 'text-accent-gold' : 'text-text-muted'
+                                )} />
+                                <span className={cn(
+                                  piece.isHidden ? 'text-accent-gold' : 'text-text-primary'
+                                )}>
+                                  {piece.name}
+                                </span>
+                                {piece.isHidden && (
+                                  <Badge variant="gold" size="sm">隐藏款</Badge>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {feeBreakdown && (
+                      <div className="mb-4">
+                        <h4 className="text-sm font-medium text-text-primary mb-2 flex items-center gap-2">
+                          <Receipt className="w-4 h-4 text-accent-pink" />
+                          费用明细
+                        </h4>
+                        <div className="bg-bg-glass rounded-lg p-3 space-y-2 text-sm">
+                          <div className="flex justify-between">
+                            <span className="text-text-muted">基础费用</span>
+                            <span className="text-text-primary">{formatPrice(feeBreakdown.baseCost)}</span>
+                          </div>
+                          {feeBreakdown.serviceFee > 0 && (
+                            <div className="flex justify-between">
+                              <span className="text-text-muted">
+                                {box.pickupMethod === 'proxy' ? '代取服务费' : '服务费'}
+                              </span>
+                              <span className="text-accent-pink">+{formatPrice(feeBreakdown.serviceFee)}</span>
+                            </div>
+                          )}
+                          {feeBreakdown.deliveryFee > 0 && (
+                            <div className="flex justify-between">
+                              <span className="text-text-muted">同城配送费</span>
+                              <span className="text-accent-pink">+{formatPrice(feeBreakdown.deliveryFee)}</span>
+                            </div>
+                          )}
+                          <div className="flex justify-between pt-2 border-t border-border-light">
+                            <span className="text-text-primary font-medium">合计</span>
+                            <span className="text-accent-gold font-bold">{formatPrice(feeBreakdown.totalPerPerson)}</span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {result.ruleExplanation && (
+                      <div className="mb-4">
+                        <h4 className="text-sm font-medium text-text-primary mb-2 flex items-center gap-2">
+                          <Info className="w-4 h-4 text-accent-blue" />
+                          分配规则
+                        </h4>
+                        <p className="text-sm text-text-muted bg-bg-glass rounded-lg p-3">
+                          {result.ruleExplanation}
+                        </p>
+                      </div>
+                    )}
+
+                    <div className="flex gap-2">
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        className="flex-1"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          navigate(`/box/${box.id}/result`);
+                        }}
+                      >
+                        <Zap className="w-4 h-4 mr-1.5" />
+                        查看详情
+                      </Button>
+                      <Button
+                        size="sm"
+                        className="flex-1"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          navigate(`/box/${box.id}`);
+                        }}
+                      >
+                        查看拼盒
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </GlassCard>
             );
           })}

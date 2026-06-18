@@ -240,6 +240,23 @@ export default function ResultPage() {
 
         {allRevealed && (
           <div className="space-y-6">
+            <GlassCard className="p-4 md:p-6" glow="blue">
+              <h3 className="font-display font-bold text-lg text-text-primary mb-3 flex items-center gap-2">
+                <Sparkles className="w-5 h-5 text-accent-blue" />
+                分配规则说明
+              </h3>
+              <div className="p-4 bg-bg-glass rounded-xl border border-accent-blue/30">
+                <p className="text-text-primary leading-relaxed">
+                  {result?.ruleExplanation}
+                </p>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <Badge variant="blue">{box.members.length} 人参与</Badge>
+                  <Badge variant="gold">{pieces.length} 个款式</Badge>
+                  <Badge variant="pink">隐藏款 × 1</Badge>
+                </div>
+              </div>
+            </GlassCard>
+
             <GlassCard className="p-4 md:p-6">
               <h3 className="font-display font-bold text-lg text-text-primary mb-4 flex items-center gap-2">
                 <Gift className="w-5 h-5 text-accent-pink" />
@@ -256,38 +273,70 @@ export default function ResultPage() {
                   return (
                     <div
                       key={member.userId}
-                      className="flex items-center gap-4 p-3 bg-bg-glass rounded-xl"
+                      className="p-4 bg-bg-glass rounded-xl"
                     >
-                      <Avatar
-                        src={member.user.avatar}
-                        size="md"
-                        ring={hasHidden}
-                        ringColor="gold"
-                      />
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <p className="font-medium text-text-primary truncate">
-                            {member.user.nickname}
+                      <div className="flex items-center gap-4 mb-3">
+                        <Avatar
+                          src={member.user.avatar}
+                          size="md"
+                          ring={hasHidden}
+                          ringColor="gold"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <p className="font-medium text-text-primary truncate">
+                              {member.user.nickname}
+                            </p>
+                            {member.isInitiator && (
+                              <Badge variant="pink" size="sm">
+                                <Crown className="w-3 h-3 mr-1" />
+                                发起人
+                              </Badge>
+                            )}
+                            {hasHidden && (
+                              <Badge variant="gold" size="sm" pulse>
+                                隐藏款
+                              </Badge>
+                            )}
+                          </div>
+                          <p className="text-sm text-text-muted mt-1">
+                            获得 {memberPieces.length} 个
                           </p>
-                          {member.isInitiator && (
-                            <Badge variant="pink" size="sm">
-                              <Crown className="w-3 h-3 mr-1" />
-                              发起人
-                            </Badge>
-                          )}
-                          {hasHidden && (
-                            <Badge variant="gold" size="sm" pulse>
-                              隐藏款
-                            </Badge>
-                          )}
                         </div>
-                        <p className="text-sm text-text-muted mt-1">
-                          获得 {memberPieces.length} 个
-                        </p>
+                        <div className="text-right">
+                          <p className="text-accent-gold font-bold">{formatPrice(result?.feeBreakdown?.totalPerPerson || result?.perPersonCost || 0)}</p>
+                          <p className="text-xs text-text-muted">人均费用</p>
+                        </div>
                       </div>
-                      <div className="text-right">
-                        <p className="text-accent-gold font-bold">{formatPrice(result?.perPersonCost || 0)}</p>
-                        <p className="text-xs text-text-muted">人均费用</p>
+                      <div className="flex flex-wrap gap-2">
+                        {memberPieces.map((d, idx) => {
+                          const piece = pieces.find(p => p.id === d.pieceId);
+                          return (
+                            <div
+                              key={d.pieceId}
+                              className={cn(
+                                'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs',
+                                piece?.isHidden
+                                  ? 'bg-accent-gold/10 border border-accent-gold/30'
+                                  : 'bg-bg-tertiary border border-border-light'
+                              )}
+                            >
+                              <Gift className={cn(
+                                'w-3.5 h-3.5',
+                                piece?.isHidden ? 'text-accent-gold' : 'text-text-muted'
+                              )} />
+                              <span className={cn(
+                                'truncate max-w-[120px]',
+                                piece?.isHidden ? 'text-accent-gold font-medium' : 'text-text-secondary'
+                              )}>
+                                {piece?.name}
+                              </span>
+                              <span className="text-text-muted text-xs">
+                                — {d.assignmentReason}
+                              </span>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   );
@@ -305,6 +354,18 @@ export default function ResultPage() {
                   <span className="text-text-muted">商品金额</span>
                   <span className="text-text-primary">{formatPrice(result?.totalCost || 0)}</span>
                 </div>
+                {result?.feeBreakdown && result.feeBreakdown.serviceFee > 0 && (
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-text-muted">服务费（¥{result.feeBreakdown.serviceFee}/人 × {box.filledSlots}人）</span>
+                    <span className="text-text-primary">{formatPrice(result.feeBreakdown.serviceFee * box.filledSlots)}</span>
+                  </div>
+                )}
+                {result?.feeBreakdown && result.feeBreakdown.deliveryFee > 0 && (
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-text-muted">配送费（¥{result.feeBreakdown.deliveryFee}/人 × {box.filledSlots}人）</span>
+                    <span className="text-text-primary">{formatPrice(result.feeBreakdown.deliveryFee * box.filledSlots)}</span>
+                  </div>
+                )}
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-text-muted">参与人数</span>
                   <span className="text-text-primary">{box.filledSlots} 人</span>
@@ -313,7 +374,7 @@ export default function ResultPage() {
                   <div className="flex items-center justify-between">
                     <span className="text-text-primary font-medium">人均费用</span>
                     <span className="font-display text-2xl font-bold gradient-gold-text">
-                      {formatPrice(result?.perPersonCost || 0)}
+                      {formatPrice(result?.feeBreakdown?.totalPerPerson || result?.perPersonCost || 0)}
                     </span>
                   </div>
                 </div>

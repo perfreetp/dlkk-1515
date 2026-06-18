@@ -35,6 +35,7 @@ export default {
           green: "#39ff14",
           red: "#ff3366",
           purple: "#9d4edd",
+          orange: "#ff9500",
         },
         border: {
           DEFAULT: "rgba(255, 45, 149, 0.2)",
